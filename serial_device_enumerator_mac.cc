@@ -2,10 +2,10 @@
 
 #include <CoreFoundation/CFNumber.h>
 #include <IOKit/IOKitLib.h>
+#include <IOKit/serial/IOSerialKeys.h>
+#include <IOKit/storage/IOMedia.h>
 #include <IOKit/usb/IOUSBLib.h>
 #include <IOKit/usb/USBSpec.h>
-#include <IOKit/storage/IOMedia.h>
-#include <IOKit/serial/IOSerialKeys.h>
 
 int main() {
   // Find and iterate through all serial devices.
