@@ -4,10 +4,13 @@
 #include <IOKit/IOKitLib.h>
 #include <IOKit/usb/IOUSBLib.h>
 #include <IOKit/usb/USBSpec.h>
+#include <IOKit/storage/IOMedia.h>
+#include <IOKit/serial/IOSerialKeys.h>
 
 int main() {
+  // Find and iterate through all serial devices.
   CFMutableDictionaryRef matchingDict;
-  matchingDict = IOServiceMatching(kIOUSBDeviceClassName);
+  matchingDict = IOServiceMatching(kIOSerialBSDServiceValue);
   if (matchingDict == NULL)
     return -1;
 
@@ -17,42 +20,76 @@ int main() {
 
   io_service_t device;
   while ((device = IOIteratorNext(iter))) {
-    CFMutableDictionaryRef usbProperties;
-    CFNumberRef cfVendorID = NULL;
-    CFNumberRef cfProductID = NULL;
-    CFStringRef cfProductString = NULL;
-    CFStringRef cfVendorString = NULL;
-    short intVal = 0;
-    const char* strVal = NULL;
+    CFMutableDictionaryRef registryProperties;
+    CFNumberRef cfNumber = NULL;
+    CFStringRef cfString = NULL;
+    CFStringEncoding encodingMethod = CFStringGetSystemEncoding();
 
-    if (IORegistryEntryCreateCFProperties(device,
-                                          &usbProperties,
-                                          NULL,
-                                          kNilOptions) != KERN_SUCCESS) {
+    const char* dialinDevice = NULL;
+    const char* calloutDevice = NULL;
+    const char* productString = NULL;
+    short vendorId = -1;
+    short productId = -1;
+
+    // Get the callout and dialin paths for the device.
+    if (IORegistryEntryCreateCFProperties(device, &registryProperties, NULL, kNilOptions) != KERN_SUCCESS) {
       IOObjectRelease(device);
       continue;
     }
 
-    if (CFDictionaryGetValueIfPresent(usbProperties,
-                                      CFSTR(kUSBProductString),
-                                      (const void **) &cfProductString)) {
-      CFStringEncoding encodingMethod = CFStringGetSystemEncoding();
-      strVal = CFStringGetCStringPtr(cfProductString, encodingMethod);
-      printf("Product string: %s\n", strVal);
+    if (CFDictionaryGetValueIfPresent(registryProperties, CFSTR(kIOCalloutDeviceKey), (const void **) &cfString)) {
+      calloutDevice = CFStringGetCStringPtr(cfString, encodingMethod);
     }
 
-    if (CFDictionaryGetValueIfPresent(usbProperties, CFSTR(kUSBVendorID), (const void **) &cfVendorID)) {
-      CFNumberGetValue(cfVendorID, kCFNumberShortType, &intVal);
-      printf("Vendor ID: 0x%04x\n", intVal);
+    if (CFDictionaryGetValueIfPresent(registryProperties, CFSTR(kIODialinDeviceKey), (const void **) &cfString)) {
+      dialinDevice = CFStringGetCStringPtr(cfString, encodingMethod);
     }
 
-    if (CFDictionaryGetValueIfPresent(usbProperties, CFSTR(kUSBProductID), (const void **) &cfProductID)) {
-      CFNumberGetValue(cfProductID, kCFNumberShortType, &intVal);
-      printf("Product ID: 0x%04x\n", intVal);
+    // On Mac, devices are organized into a tree structure. For an
+    // IOSerialBSDClient that is also an IOUSBDevice, we traverse the
+    // registry tree upwards from the IOSerialBSDClient entry until we
+    // hit the IOUSBDevice entry. Once there, we can access the
+    // device properties that we need.
+    io_registry_entry_t curr;
+    kern_return_t kr = IORegistryEntryGetParentEntry(device, kIOServicePlane, &curr);
+    while (kr == KERN_SUCCESS) {
+      if (IOObjectConformsTo(curr, kIOUSBDeviceClassName)) {
+        if (IORegistryEntryCreateCFProperties(curr, &registryProperties, NULL, kNilOptions) != KERN_SUCCESS) {
+          IOObjectRelease(curr);
+          break;
+        }
+
+        if (CFDictionaryGetValueIfPresent(registryProperties, CFSTR(kUSBProductString), (const void **) &cfString)) {
+          productString = CFStringGetCStringPtr(cfString, encodingMethod);
+        }
+
+        if (CFDictionaryGetValueIfPresent(registryProperties, CFSTR(kUSBVendorID), (const void **) &cfNumber)) {
+          CFNumberGetValue(cfNumber, kCFNumberIntType, &vendorId);
+        }
+
+        if (CFDictionaryGetValueIfPresent(registryProperties, CFSTR(kUSBProductID), (const void **) &cfNumber)) {
+          CFNumberGetValue(cfNumber, kCFNumberIntType, &productId);
+        }
+
+        IOObjectRelease(curr);
+        break;
+      }
+
+      io_registry_entry_t next;
+      kr = IORegistryEntryGetParentEntry(curr, kIOServicePlane, &next);
+      IOObjectRelease(curr);
+      curr = next;
     }
 
-    printf("\n");
+    IOObjectRelease(curr);
     IOObjectRelease(device);
+
+    printf("Dialin device: %s\n", dialinDevice);
+    printf("Callout device: %s\n", calloutDevice);
+    printf("Product string: %s\n", productString);
+    printf("Vendor ID: 0x%04x\n", vendorId);
+    printf("Product ID: 0x%04x\n", productId);
+    printf("\n");
   }
 
   IOObjectRelease(iter);
