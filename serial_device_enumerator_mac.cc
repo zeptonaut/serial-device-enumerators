@@ -55,7 +55,6 @@ int main() {
     while (kr == KERN_SUCCESS) {
       if (IOObjectConformsTo(curr, kIOUSBDeviceClassName)) {
         if (IORegistryEntryCreateCFProperties(curr, &registryProperties, NULL, kNilOptions) != KERN_SUCCESS) {
-          IOObjectRelease(curr);
           break;
         }
 
@@ -71,7 +70,6 @@ int main() {
           CFNumberGetValue(cfNumber, kCFNumberIntType, &productId);
         }
 
-        IOObjectRelease(curr);
         break;
       }
 
